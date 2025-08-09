@@ -1,5 +1,5 @@
 FROM postgres:17-alpine
-RUN apk add --no-cache curl
+RUN apk add --no-cache curl jq
 
 # Set labels for better image management
 LABEL maintainer="yohan@yohanzbinden.ch"
