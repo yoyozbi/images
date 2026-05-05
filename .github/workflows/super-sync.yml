@@ -12,7 +12,6 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}/super-sync
   UPSTREAM_REPO: super-productivity/super-productivity
 
 jobs:
@@ -27,41 +26,52 @@ jobs:
     steps:
       - name: Set Lowercase Image Name
         run: |
+          # GHCR requires lowercase image names
           echo "IMAGE_NAME=${GITHUB_REPOSITORY,,}/super-sync" >> $GITHUB_ENV
+
       - name: Get Latest Upstream Release
         id: upstream
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # If manual input is provided, use it. Otherwise, fetch the latest release tag from API.
           if [ -n "${{ inputs.ref }}" ]; then
-            echo "RELEASE_TAG=${{ inputs.ref }}" >> $GITHUB_OUTPUT
+            TAG="${{ inputs.ref }}"
           else
-            LATEST_TAG=$(curl -s https://api.github.com/repos/${{ env.UPSTREAM_REPO }}/releases/latest | jq -r .tag_name)
-            echo "RELEASE_TAG=$LATEST_TAG" >> $GITHUB_OUTPUT
+            # Using GH CLI as suggested for better error handling
+            TAG=$(gh release view --repo "${{ env.UPSTREAM_REPO }}" --json tagName --jq .tagName)
           fi
-          echo "Detected Tag: $LATEST_TAG"
+          echo "RELEASE_TAG=$TAG" >> $GITHUB_OUTPUT
+          echo "Detected Tag: $TAG"
+
+      - name: Log in to Container Registry
+        # Moved up so 'docker manifest inspect' can authenticate
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Check if image already exists
         id: check-tag
         run: |
-          # Check GHCR to see if we already built this tag to prevent infinite loops/waste
-          TOKEN=$(echo "${{ secrets.GITHUB_TOKEN }}" | base64)
-          RESPONSE=$(curl -s -o /dev/null -I -w "%{http_code}" \
-            -H "Authorization: Bearer $TOKEN" \
-            https://ghcr.io/v2/${{ env.IMAGE_NAME }}/manifests/${{ steps.upstream.outputs.RELEASE_TAG }})
+          FULL_IMAGE_NAME="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
+          TAG="${{ steps.upstream.outputs.RELEASE_TAG }}"
           
-          if [ "$RESPONSE" = "200" ]; then
+          if docker manifest inspect $FULL_IMAGE_NAME:$TAG > /dev/null 2>&1; then
             echo "exists=true" >> $GITHUB_OUTPUT
-            echo "Tag ${{ steps.upstream.outputs.RELEASE_TAG }} already exists in registry. Skipping."
+            echo "Tag $TAG already exists in registry. Skipping build."
           else
             echo "exists=false" >> $GITHUB_OUTPUT
+            echo "Tag $TAG not found. Proceeding with build."
           fi
-          
+
       - name: Checkout super-productivity at ref
         if: steps.check-tag.outputs.exists == 'false'
         uses: actions/checkout@v4
         with:
           repository: ${{ env.UPSTREAM_REPO }}
-          ref: ${{ inputs.ref }}
+          # Use the detected/inputted tag specifically
+          ref: ${{ steps.upstream.outputs.RELEASE_TAG }}
 
       - name: Inject baseline Prisma migration
         if: steps.check-tag.outputs.exists == 'false'
@@ -173,14 +183,6 @@ jobs:
         if: steps.check-tag.outputs.exists == 'false'
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to Container Registry
-        if: steps.check-tag.outputs.exists == 'false'
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Build and push Docker image
         if: steps.check-tag.outputs.exists == 'false'
         id: push
@@ -196,7 +198,7 @@ jobs:
             org.opencontainers.image.description=Super Sync Server from super-productivity
             org.opencontainers.image.vendor=${{ github.repository_owner }}
             org.opencontainers.image.source=https://github.com/${{ env.UPSTREAM_REPO }}
-            org.opencontainers.image.revision=${{ inputs.ref }}
+            org.opencontainers.image.revision=${{ steps.upstream.outputs.RELEASE_TAG }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           provenance: false
