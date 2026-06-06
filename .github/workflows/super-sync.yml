@@ -121,6 +121,20 @@ jobs:
               FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
           SQLEOF
 
+      - name: Patch CONCURRENTLY migrations for Prisma compatibility
+        run: |
+          # `prisma migrate deploy` wraps every migration in a transaction, but PostgreSQL
+          # forbids CREATE/DROP INDEX CONCURRENTLY inside a transaction block.  Strip the
+          # keyword so Prisma can run them normally.  On a small personal server the brief
+          # table lock is acceptable; correctness is identical.
+          find packages/super-sync-server/prisma/migrations -name "migration.sql" | while read f; do
+            sed -i \
+              -e 's/CREATE INDEX CONCURRENTLY \([^ ]\)/CREATE INDEX IF NOT EXISTS \1/g' \
+              -e 's/DROP INDEX CONCURRENTLY IF EXISTS/DROP INDEX IF EXISTS/g' \
+              -e 's/DROP INDEX CONCURRENTLY /DROP INDEX IF EXISTS /g' \
+              "$f"
+          done
+
       - name: Compute image tags
         id: tags
         run: |
