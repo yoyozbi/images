@@ -121,6 +121,11 @@ jobs:
               FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
           SQLEOF
 
+      - name: Enable migrations on startup
+        run: |
+          sed -i 's/ENV RUN_MIGRATIONS_ON_STARTUP=false/ENV RUN_MIGRATIONS_ON_STARTUP=true/' \
+            packages/super-sync-server/Dockerfile
+
       - name: Compute image tags
         id: tags
         run: |
