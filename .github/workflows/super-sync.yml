@@ -2,7 +2,7 @@ name: Super Sync
 
 on:
   schedule:
-    - cron: '0 8,20 * * *'
+    - cron: "0 8,20 * * *"
   workflow_dispatch:
     inputs:
       ref:
@@ -53,7 +53,7 @@ jobs:
         run: |
           FULL_IMAGE_NAME="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
           TAG="${{ steps.upstream.outputs.RELEASE_TAG }}"
-          
+
           if docker manifest inspect $FULL_IMAGE_NAME:$TAG > /dev/null 2>&1; then
             echo "exists=true" >> $GITHUB_OUTPUT
             echo "Tag $TAG already exists in registry. Skipping build."
@@ -64,7 +64,7 @@ jobs:
 
       - name: Checkout super-productivity at ref
         if: steps.check-tag.outputs.exists == 'false'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: ${{ env.UPSTREAM_REPO }}
           ref: ${{ steps.upstream.outputs.RELEASE_TAG }}
@@ -180,14 +180,17 @@ jobs:
             echo "tags=${IMAGE}:${REF}" >> "$GITHUB_OUTPUT"
           fi
 
+      - uses: docker/setup-qemu-action@v3
+        if: steps.check-tag.outputs.exists == 'false'
+
       - name: Set up Docker Buildx
         if: steps.check-tag.outputs.exists == 'false'
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Build and push Docker image
         if: steps.check-tag.outputs.exists == 'false'
         id: push
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: ./packages/super-sync-server/Dockerfile
@@ -206,7 +209,7 @@ jobs:
 
       - name: Generate artifact attestation
         if: steps.check-tag.outputs.exists == 'false'
-        uses: actions/attest-build-provenance@v1
+        uses: actions/attest-build-provenance@v4
         with:
           subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           subject-digest: ${{ steps.push.outputs.digest }}
